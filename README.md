@@ -1,17 +1,51 @@
-### Hi there 👋
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
-<!--
-**mkpandey/mkpandey** is a ✨ _special_ ✨ repository because its `README.md` (this file) appears on your GitHub profile.
+public class CreateUserInForgeRock {
 
-Here are some ideas to get you started:
+    public static void main(String[] args) {
+        try {
+            // Endpoint URL for creating a new user in ForgeRock IDM
+            URL url = new URL("https://your-idm-server.example.com/openidm/managed/user?_action=create");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
-- 🔭 I’m currently working on ...
-- 🌱 I’m currently learning ...
-- 👯 I’m looking to collaborate on ...
-- 🤔 I’m looking for help with ...
-- 💬 Ask me about ...
-- 📫 How to reach me: ...
-- 😄 Pronouns: ...
-- ⚡ Fun fact: ...
--->
-Mkshpnd03@gmail.com
+            // Set the request method and properties
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Authorization", "Bearer YOUR_ACCESS_TOKEN"); // Replace YOUR_ACCESS_TOKEN appropriately
+            conn.setDoOutput(true);
+
+            // Prepare the JSON payload for the new user
+            String jsonInputString = "{"
+                    + "\"userName\": \"newuser\","
+                    + "\"givenName\": \"John\","
+                    + "\"sn\": \"Doe\","
+                    + "\"mail\": \"john.doe@example.com\","
+                    + "\"password\": \"password123\""
+                    + "}";
+
+            // Write the JSON payload to the request body
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = jsonInputString.getBytes("utf-8");
+                os.write(input, 0, input.length);
+            }
+
+            // Read the response from the server
+            int responseCode = conn.getResponseCode();
+            System.out.println("Response Code: " + responseCode);
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                // Handle success
+                System.out.println("User created successfully.");
+                // Further processing here...
+            } else {
+                // Handle errors
+                System.out.println("Failed to create user.");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
