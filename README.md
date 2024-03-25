@@ -1,51 +1,65 @@
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
-public class CreateUserInForgeRock {
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Date;
+
+public class S3FileDeletion {
+
+    private static final Region AWS_REGION = Region.US_EAST_1;
+    private static final String BUCKET_NAME = "your-bucket-name";
+    private static final String PREFIX = "logs/"; // Example prefix
 
     public static void main(String[] args) {
-        try {
-            // Endpoint URL for creating a new user in ForgeRock IDM
-            URL url = new URL("https://your-idm-server.example.com/openidm/managed/user?_action=create");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        S3Client s3 = S3Client.builder()
+                .region(AWS_REGION)
+                .credentialsProvider(ProfileCredentialsProvider.create())
+                .build();
 
-            // Set the request method and properties
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("Authorization", "Bearer YOUR_ACCESS_TOKEN"); // Replace YOUR_ACCESS_TOKEN appropriately
-            conn.setDoOutput(true);
+        LocalDate oneMonthAgo = LocalDate.now().minusMonths(1);
 
-            // Prepare the JSON payload for the new user
-            String jsonInputString = "{"
-                    + "\"userName\": \"newuser\","
-                    + "\"givenName\": \"John\","
-                    + "\"sn\": \"Doe\","
-                    + "\"mail\": \"john.doe@example.com\","
-                    + "\"password\": \"password123\""
-                    + "}";
+        ListObjectsV2Request listReq = ListObjectsV2Request.builder()
+                .bucket(BUCKET_NAME)
+                .prefix(PREFIX)
+                .build();
 
-            // Write the JSON payload to the request body
-            try (OutputStream os = conn.getOutputStream()) {
-                byte[] input = jsonInputString.getBytes("utf-8");
-                os.write(input, 0, input.length);
+        ListObjectsV2Response listRes;
+        do {
+            listRes = s3.listObjectsV2(listReq);
+
+            for (S3Object s3Object : listRes.contents()) {
+                LocalDate lastModified = Instant.ofEpochMilli(s3Object.lastModified().toEpochMilli())
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate();
+
+                if (lastModified.isBefore(oneMonthAgo)) {
+                    deleteS3Object(s3, BUCKET_NAME, s3Object.key());
+                }
             }
 
-            // Read the response from the server
-            int responseCode = conn.getResponseCode();
-            System.out.println("Response Code: " + responseCode);
+            listReq = listReq.toBuilder()
+                    .continuationToken(listRes.nextContinuationToken())
+                    .build();
 
-            if (responseCode == HttpURLConnection.HTTP_OK) {
-                // Handle success
-                System.out.println("User created successfully.");
-                // Further processing here...
-            } else {
-                // Handle errors
-                System.out.println("Failed to create user.");
-            }
+        } while (listRes.isTruncated());
 
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        s3.close();
+    }
+
+    private static void deleteS3Object(S3Client s3, String bucketName, String key) {
+        DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
+                .bucket(bucketName)
+                .key(key)
+                .build();
+
+        s3.deleteObject(deleteRequest);
+        System.out.println("Deleted object: " + key);
     }
 }
