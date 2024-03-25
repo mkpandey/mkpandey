@@ -78,3 +78,9 @@ public class S3FileDeletionBatch {
         }
     }
 }
+
+
+ DeleteObjectsRequest deleteRequest = DeleteObjectsRequest.builder()
+                .bucket(bucketName)
+                .delete(Delete.builder().objects(keysToDelete).build())
+                .build();
