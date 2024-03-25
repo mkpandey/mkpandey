@@ -1,65 +1,80 @@
 import software.amazon.awssdk.auth.credentials.ProfileCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.S3Object;
+import software.amazon.awssdk.services.s3.model.*;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.Date;
+import java.util.ArrayList;
+import java.util.List;
 
-public class S3FileDeletion {
+public class S3FileDeletionBatch {
 
     private static final Region AWS_REGION = Region.US_EAST_1;
     private static final String BUCKET_NAME = "your-bucket-name";
-    private static final String PREFIX = "logs/"; // Example prefix
 
     public static void main(String[] args) {
-        S3Client s3 = S3Client.builder()
+        S3Client s3Client = S3Client.builder()
                 .region(AWS_REGION)
                 .credentialsProvider(ProfileCredentialsProvider.create())
                 .build();
 
         LocalDate oneMonthAgo = LocalDate.now().minusMonths(1);
 
-        ListObjectsV2Request listReq = ListObjectsV2Request.builder()
+        List<String> keysToDelete = new ArrayList<>();
+
+        ListObjectsV2Request listRequest = ListObjectsV2Request.builder()
                 .bucket(BUCKET_NAME)
-                .prefix(PREFIX)
                 .build();
 
-        ListObjectsV2Response listRes;
+        ListObjectsV2Response listResponse;
         do {
-            listRes = s3.listObjectsV2(listReq);
+            listResponse = s3Client.listObjectsV2(listRequest);
 
-            for (S3Object s3Object : listRes.contents()) {
-                LocalDate lastModified = Instant.ofEpochMilli(s3Object.lastModified().toEpochMilli())
+            for (S3Object object : listResponse.contents()) {
+                LocalDate lastModified = Instant.ofEpochMilli(object.lastModified().toEpochMilli())
                         .atZone(ZoneId.systemDefault())
                         .toLocalDate();
 
                 if (lastModified.isBefore(oneMonthAgo)) {
-                    deleteS3Object(s3, BUCKET_NAME, s3Object.key());
+                    keysToDelete.add(object.key());
                 }
             }
 
-            listReq = listReq.toBuilder()
-                    .continuationToken(listRes.nextContinuationToken())
+            listRequest = listRequest.toBuilder()
+                    .continuationToken(listResponse.nextContinuationToken())
                     .build();
 
-        } while (listRes.isTruncated());
+        } while (listResponse.isTruncated());
 
-        s3.close();
+        deleteObjects(s3Client, BUCKET_NAME, keysToDelete);
+
+        s3Client.close();
     }
 
-    private static void deleteS3Object(S3Client s3, String bucketName, String key) {
-        DeleteObjectRequest deleteRequest = DeleteObjectRequest.builder()
-                .bucket(bucketName)
-                .key(key)
-                .build();
+    private static void deleteObjects(S3Client s3Client, String bucketName, List<String> keysToDelete) {
+        if (!keysToDelete.isEmpty()) {
+            DeleteObjectsRequest deleteRequest = DeleteObjectsRequest.builder()
+                    .bucket(bucketName)
+                    .delete(Delete.builder().objects(keysToDelete.stream().map(DeleteObject.builder()::key).build()).build())
+                    .build();
 
-        s3.deleteObject(deleteRequest);
-        System.out.println("Deleted object: " + key);
+            DeleteObjectsResponse deleteResponse = s3Client.deleteObjects(deleteRequest);
+
+            // Check if any objects failed to delete
+            if (!deleteResponse.deletedObjects().isEmpty()) {
+                System.out.println("Successfully deleted objects:");
+                deleteResponse.deletedObjects().forEach(deletedObject -> System.out.println(deletedObject.key()));
+            }
+
+            // Check if any objects failed to delete
+            if (!deleteResponse.errors().isEmpty()) {
+                System.out.println("Failed to delete objects:");
+                deleteResponse.errors().forEach(error -> System.out.println(error.message()));
+            }
+        } else {
+            System.out.println("No objects found older than one month.");
+        }
     }
 }
